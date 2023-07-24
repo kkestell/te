@@ -5,17 +5,18 @@
 
 Editor::Editor()
 {
-    setlocale(LC_ALL, "");                                        // set locale to the user's default
-    initscr();                                                    // initialize the library and the terminal settings
-    raw();                                                        // disable line buffering
-    noecho();                                                     // don't echo input
-    keypad(stdscr, TRUE);                                         // enable reading of function keys, arrow keys etc.
+    setlocale(LC_ALL, ""); // set locale to the user's default
+    initscr();             // initialize the library and the terminal settings
+    raw();                 // disable line buffering
+    noecho();              // don't echo input
+    keypad(stdscr, TRUE);  // enable reading of function keys, arrow keys etc.
+
     mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, nullptr); // enable mouse events
 }
 
 Editor::~Editor()
 {
-    endwin(); // end curses mode
+    endwin();
 }
 
 void Editor::run()
