@@ -11,7 +11,6 @@ class Document
     size_t curCol;
     std::pair<int, int> selectionStart;
     std::pair<int, int> selectionEnd;
-    void clearSelection();
 
   public:
     Document();
@@ -27,8 +26,11 @@ class Document
     void print();
     void drawCursor();
     void moveCursor(int line, int col);
-    void setSelectionStart(int line, int col);
-    void setSelectionEnd(int line, int col);
+    void setSelectionStart();
+    void setSelectionEnd();
+    void clearSelection();
+
+    bool selecting = false;
 };
 
 #endif

@@ -8,6 +8,7 @@ Document::Document()
     lines.emplace_back("");
     curLine = lines.begin();
     curCol = 0;
+    clearSelection();
 }
 
 void Document::insert(char ch)
@@ -109,6 +110,10 @@ void Document::cursorLeft()
         curLine--;
         curCol = curLine->size();
     }
+    if (selecting)
+    {
+        setSelectionEnd();
+    }
 }
 
 void Document::cursorRight()
@@ -126,6 +131,10 @@ void Document::cursorRight()
             curCol = 0;
         }
     }
+    if (selecting)
+    {
+        setSelectionEnd();
+    }
 }
 
 void Document::cursorUp()
@@ -140,6 +149,10 @@ void Document::cursorUp()
 
         // Reset cursor to old column or end of line if line is shorter
         curCol = old_col < curLine->size() ? old_col : curLine->size();
+    }
+    if (selecting)
+    {
+        setSelectionEnd();
     }
 }
 
@@ -156,6 +169,10 @@ void Document::cursorDown()
 
         // Reset cursor to old column or end of line if line is shorter
         curCol = old_col < curLine->size() ? old_col : curLine->size();
+    }
+    if (selecting)
+    {
+        setSelectionEnd();
     }
 }
 
@@ -177,29 +194,48 @@ void Document::print()
     clear();
 
     int line_number = 0;
-    for (auto line = lines.begin(); line != lines.end(); line++)
+    for (auto str : lines)
     {
-        std::string str = *line;
-
         // Check if this line is part of the selection
-        if (line_number >= selectionStart.first && line_number <= selectionEnd.first)
+        if (selecting && selectionEnd.first > -1 && selectionStart.first > -1)
         {
-            int start_col = (line_number == selectionStart.first) ? selectionStart.second : 0;
-            int end_col = (line_number == selectionEnd.first) ? selectionEnd.second : str.size();
+            // Determine the actual start and end of the selection
+            std::pair<int, int> actualStart = selectionStart;
+            std::pair<int, int> actualEnd = selectionEnd;
 
-            // Print characters before the selection
-            if (start_col > 0) {
-                mvprintw(line_number, 0, str.substr(0, start_col).c_str());
+            // If the end is before the start, flip them
+            if (selectionEnd < selectionStart)
+            {
+                actualStart = selectionEnd;
+                actualEnd = selectionStart;
             }
 
-            // Reverse the characters in the selection
-            attron(A_REVERSE);
-            mvprintw(line_number, start_col, str.substr(start_col, end_col - start_col).c_str());
-            attroff(A_REVERSE);
+            if (line_number >= actualStart.first && line_number <= actualEnd.first)
+            {
+                int start_col = (line_number == actualStart.first) ? actualStart.second : 0;
+                int end_col = (line_number == actualEnd.first) ? actualEnd.second : str.size();
 
-            // Print the rest of the line normally
-            if (end_col < str.size()) {
-                mvprintw(line_number, end_col, str.substr(end_col).c_str());
+                // Print characters before the selection
+                if (start_col > 0)
+                {
+                    mvprintw(line_number, 0, str.substr(0, start_col).c_str());
+                }
+
+                // Reverse the characters in the selection
+                attron(A_REVERSE);
+                mvprintw(line_number, start_col, str.substr(start_col, end_col - start_col).c_str());
+                attroff(A_REVERSE);
+
+                // Print the rest of the line normally
+                if (end_col < str.size())
+                {
+                    mvprintw(line_number, end_col, str.substr(end_col).c_str());
+                }
+            }
+            else
+            {
+                // Print the line normally
+                mvprintw(line_number, 0, str.c_str());
             }
         }
         else
@@ -211,7 +247,24 @@ void Document::print()
         line_number++;
     }
 
-    drawCursor();
+    // Manually draw the cursor
+    if (curLine != lines.end())
+    {
+        if (curCol < curLine->size())
+        {
+            // Draw the cursor on an existing character
+            attron(A_REVERSE);
+            mvprintw(std::distance(lines.begin(), curLine), curCol, "%c", (*curLine)[curCol]);
+            attroff(A_REVERSE);
+        }
+        else
+        {
+            // Draw the cursor at the end of the line
+            attron(A_REVERSE);
+            mvprintw(std::distance(lines.begin(), curLine), curCol, " ");
+            attroff(A_REVERSE);
+        }
+    }
 
     // Update the physical screen
     refresh();
@@ -258,12 +311,12 @@ void Document::moveCursor(int line, int col)
     curCol = col;
 }
 
-void Document::setSelectionStart(int line, int col)
+void Document::setSelectionStart()
 {
-    selectionStart = std::make_pair(line, col);
+    selectionStart = std::make_pair(std::distance(lines.begin(), curLine), curCol);
 }
 
-void Document::setSelectionEnd(int line, int col)
+void Document::setSelectionEnd()
 {
-    selectionEnd = std::make_pair(line, col);
+    selectionEnd = std::make_pair(std::distance(lines.begin(), curLine), curCol);
 }

@@ -10,8 +10,7 @@ Editor::Editor()
     raw();                 // disable line buffering
     noecho();              // don't echo input
     keypad(stdscr, TRUE);  // enable reading of function keys, arrow keys etc.
-
-    mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, nullptr); // enable mouse events
+    curs_set(0);           // hide the cursor
 }
 
 Editor::~Editor()
@@ -29,6 +28,13 @@ void Editor::run()
         {
         case KEY_CTRL('q'):
             goto end;
+        case KEY_CTRL('s'):
+            doc.selecting = true;
+            doc.setSelectionStart();
+            break;
+        case KEY_CTRL('x'):
+            doc.selecting = false;
+            doc.clearSelection();
             break;
         case '\n':
             doc.insert('\n');
@@ -59,19 +65,9 @@ void Editor::run()
             break;
         case KEY_RESIZE:
             break;
-        case KEY_MOUSE:
-            if (getmouse(&event) != OK)
-                continue;
-            if (event.bstate & BUTTON1_PRESSED)
-                doc.setSelectionStart(event.y, event.x);
-            else if (event.bstate & BUTTON1_RELEASED)
-                doc.setSelectionEnd(event.y, event.x);
-            else if (event.bstate & BUTTON1_CLICKED)
-                doc.moveCursor(event.y, event.x);
-            break;
         default:
             if (ch < 256)
-                doc.insert(ch);
+                doc.insert((char)ch);
             break;
         }
 
