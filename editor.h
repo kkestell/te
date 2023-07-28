@@ -12,6 +12,7 @@ class Editor
   public:
     Editor();
     ~Editor();
+    void init();
     void run();
 };
 

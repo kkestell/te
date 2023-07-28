@@ -7,30 +7,30 @@
 class Document
 {
     std::list<std::string> lines;
-    std::list<std::string>::iterator curLine;
-    size_t curCol;
-    std::pair<int, int> selectionStart;
-    std::pair<int, int> selectionEnd;
+    std::list<std::string>::iterator cur_line;
+    size_t cur_col;
+    std::pair<int, int> selection_start;
+    std::pair<int, int> scroll_offset;
 
   public:
     Document();
+    explicit Document(const std::string &filename);
     void insert(char ch);
-    void deleteForward();
-    void deleteBackward();
-    void cursorLeft();
-    void cursorRight();
-    void cursorUp();
-    void cursorDown();
-    void cursorHome();
-    void cursorEnd();
+    void delete_forward();
+    void delete_backward();
+    void cursor_left();
+    void cursor_right();
+    void cursor_up();
+    void cursor_down();
+    void cursor_home();
+    void cursor_end();
     void print();
-    void drawCursor();
-    void moveCursor(int line, int col);
-    void setSelectionStart();
-    void setSelectionEnd();
-    void clearSelection();
-
+    void set_selection_start();
+    void clear_selection();
     bool selecting = false;
+
+  private:
+    void scroll_to_cursor();
 };
 
 #endif

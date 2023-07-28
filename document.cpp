@@ -1,14 +1,40 @@
 #include "document.h"
+#include "utf8.h"
+#include <fstream>
 #include <list>
 #include <ncurses.h>
 #include <string>
 
+Document::Document(const std::string& filename)
+{
+    std::ifstream file(filename);
+    std::string line;
+
+    if (file.is_open())
+    {
+        while (std::getline(file, line))
+        {
+            lines.push_back(line);
+        }
+        file.close();
+    }
+    else
+    {
+        // If the file cannot be opened, initialize the document with an empty line.
+        lines.emplace_back("");
+    }
+
+    cur_line = lines.begin();
+    cur_col = 0;
+    clear_selection();
+}
+
 Document::Document()
 {
     lines.emplace_back("");
-    curLine = lines.begin();
-    curCol = 0;
-    clearSelection();
+    cur_line = lines.begin();
+    cur_col = 0;
+    clear_selection();
 }
 
 void Document::insert(char ch)
@@ -16,307 +42,245 @@ void Document::insert(char ch)
     if (ch == '\n')
     {
         // Split the current line into two lines
-        std::string tail = curLine->substr(curCol);
-        curLine->erase(curCol);
-        lines.insert(std::next(curLine), tail);
-        curCol = 0;
-        curLine++;
+        std::string tail = utf8::substr(*cur_line, cur_col, utf8::str_length(*cur_line) - cur_col);
+        *cur_line = utf8::substr(*cur_line, 0, cur_col);
+        lines.insert(std::next(cur_line), tail);
+        cur_col = 0;
+        cur_line++;
     }
     else
     {
-        // Insert the character at the cursor position
-        curLine->insert(curCol++, 1, ch);
+        std::string ch_str(1, ch);
+        std::string pre = utf8::substr(*cur_line, 0, cur_col);
+        std::string post = utf8::substr(*cur_line, cur_col, utf8::str_length(*cur_line) - cur_col);
+        *cur_line = pre + ch_str + post;
+        cur_col += 1;
     }
+    scroll_to_cursor();
 }
 
-void Document::deleteForward()
+void Document::delete_forward()
 {
     // If there's no current line, we have nothing to delete
-    if (curLine == lines.end())
+    if (cur_line == lines.end())
         return;
 
     // If the cursor is at the end of the line
-    if (curCol == curLine->size())
+    if (cur_col == utf8::str_length(*cur_line))
     {
         // If the cursor is at the end of the Document
-        auto next_line = std::next(curLine);
+        auto next_line = std::next(cur_line);
         if (next_line == lines.end())
             return;
 
         // Merge current line with next line
-        *curLine += *next_line;
+        *cur_line += *next_line;
 
         // Delete the next line
         lines.erase(next_line);
     }
     else // Cursor is in the middle of the line
     {
-        // Delete the character at the cursor
-        curLine->erase(curCol, 1);
+        // Manually erase the character at the cursor using substrings
+        std::string pre = utf8::substr(*cur_line, 0, cur_col);
+        std::string post = utf8::substr(*cur_line, cur_col + 1, utf8::str_length(*cur_line) - cur_col - 1);
+        *cur_line = pre + post;
     }
+    scroll_to_cursor();
 }
 
-void Document::deleteBackward()
+void Document::delete_backward()
 {
     // If there's no current line, we have nothing to delete
-    if (curLine == lines.end())
+    if (cur_line == lines.end())
         return;
 
     // If the cursor is at the beginning of the line
-    if (curCol == 0)
+    if (cur_col == 0)
     {
         // If the cursor is at the beginning of the Document
-        if (curLine == lines.begin())
+        if (cur_line == lines.begin())
             return;
 
         // Store previous line iterator
-        auto prev_line = std::prev(curLine);
+        auto prev_line = std::prev(cur_line);
 
         // Move cursor to the end of the previous line
-        curCol = prev_line->size();
+        cur_col = utf8::str_length(*prev_line);
 
         // Merge previous line with current line
-        *prev_line += *curLine;
+        *prev_line += *cur_line;
 
         // Delete the current line
-        lines.erase(curLine);
+        lines.erase(cur_line);
 
         // Update current line iterator to previous line
-        curLine = prev_line;
+        cur_line = prev_line;
     }
     else // Cursor is in the middle or end of the line
     {
         // Move cursor one character to the left
-        curCol--;
+        cur_col--;
 
         // Delete the character at the new cursor position
-        curLine->erase(curCol, 1);
+        std::string pre = utf8::substr(*cur_line, 0, cur_col);
+        std::string post = utf8::substr(*cur_line, cur_col + 1, utf8::str_length(*cur_line) - cur_col - 1);
+        *cur_line = pre + post;
     }
+    scroll_to_cursor();
 }
 
-void Document::clearSelection()
+void Document::clear_selection()
 {
-    selectionStart = selectionEnd = std::make_pair(-1, -1);
+    selection_start = std::make_pair(-1, -1);
+    selecting = false;
 }
 
-void Document::cursorLeft()
+void Document::cursor_left()
 {
-    if (curCol > 0)
+    if (cur_col > 0)
     {
-        curCol--;
+        cur_col--;
     }
-    else if (curLine != lines.begin())
+    else if (cur_line != lines.begin())
     {
-        curLine--;
-        curCol = curLine->size();
+        cur_line--;
+        cur_col = utf8::str_length(*cur_line);
     }
-    if (selecting)
-    {
-        setSelectionEnd();
-    }
+    scroll_to_cursor();
 }
 
-void Document::cursorRight()
+void Document::cursor_right()
 {
-    if (curCol < curLine->size())
+    if (cur_col < utf8::str_length(*cur_line))
     {
-        curCol++;
+        cur_col++;
     }
     else
     {
-        auto next_line = std::next(curLine);
+        auto next_line = std::next(cur_line);
         if (next_line != lines.end())
         {
-            curLine++;
-            curCol = 0;
+            cur_line++;
+            cur_col = 0;
         }
     }
-    if (selecting)
-    {
-        setSelectionEnd();
-    }
+    scroll_to_cursor();
 }
 
-void Document::cursorUp()
+void Document::cursor_up()
 {
-    if (curLine != lines.begin())
+    if (cur_line != lines.begin())
     {
         // Store current column
-        size_t old_col = curCol;
+        size_t old_col = cur_col;
 
         // Move cursor to previous line
-        --curLine;
+        --cur_line;
 
         // Reset cursor to old column or end of line if line is shorter
-        curCol = old_col < curLine->size() ? old_col : curLine->size();
+        cur_col = old_col < utf8::str_length(*cur_line) ? old_col : utf8::str_length(*cur_line);
     }
-    if (selecting)
-    {
-        setSelectionEnd();
-    }
+    scroll_to_cursor();
 }
 
-void Document::cursorDown()
+void Document::cursor_down()
 {
-    auto next_line = std::next(curLine);
+    auto next_line = std::next(cur_line);
     if (next_line != lines.end())
     {
         // Store current column
-        size_t old_col = curCol;
+        size_t old_col = cur_col;
 
         // Move cursor to next line
-        curLine++;
+        cur_line++;
 
         // Reset cursor to old column or end of line if line is shorter
-        curCol = old_col < curLine->size() ? old_col : curLine->size();
+        cur_col = old_col < utf8::str_length(*cur_line) ? old_col : utf8::str_length(*cur_line);
     }
-    if (selecting)
-    {
-        setSelectionEnd();
-    }
+    scroll_to_cursor();
 }
 
-void Document::cursorHome()
+void Document::cursor_home()
 {
     // Move the cursor to the beginning of the current line
-    curCol = 0;
+    cur_col = 0;
+    scroll_to_cursor();
 }
 
-void Document::cursorEnd()
+void Document::cursor_end()
 {
     // Move the cursor to the end of the current line
-    curCol = curLine->size();
+    cur_col = utf8::str_length(*cur_line);
+    scroll_to_cursor();
 }
 
 void Document::print()
 {
     // Clear the screen
-    clear();
+    erase();
 
     int line_number = 0;
-    for (auto str : lines)
+    for (auto str = std::next(lines.begin(), scroll_offset.first); str != lines.end() && line_number < getmaxy(stdscr); ++str)
     {
-        // Check if this line is part of the selection
-        if (selecting && selectionEnd.first > -1 && selectionStart.first > -1)
-        {
-            // Determine the actual start and end of the selection
-            std::pair<int, int> actualStart = selectionStart;
-            std::pair<int, int> actualEnd = selectionEnd;
+        // Calculate the length of the substring
+        int sub_len = getmaxx(stdscr) < utf8::str_length(*str) - scroll_offset.second ? getmaxx(stdscr) : utf8::str_length(*str) - scroll_offset.second;
 
-            // If the end is before the start, flip them
-            if (selectionEnd < selectionStart)
-            {
-                actualStart = selectionEnd;
-                actualEnd = selectionStart;
-            }
-
-            if (line_number >= actualStart.first && line_number <= actualEnd.first)
-            {
-                int start_col = (line_number == actualStart.first) ? actualStart.second : 0;
-                int end_col = (line_number == actualEnd.first) ? actualEnd.second : str.size();
-
-                // Print characters before the selection
-                if (start_col > 0)
-                {
-                    mvprintw(line_number, 0, str.substr(0, start_col).c_str());
-                }
-
-                // Reverse the characters in the selection
-                attron(A_REVERSE);
-                mvprintw(line_number, start_col, str.substr(start_col, end_col - start_col).c_str());
-                attroff(A_REVERSE);
-
-                // Print the rest of the line normally
-                if (end_col < str.size())
-                {
-                    mvprintw(line_number, end_col, str.substr(end_col).c_str());
-                }
-            }
-            else
-            {
-                // Print the line normally
-                mvprintw(line_number, 0, str.c_str());
-            }
-        }
-        else
-        {
-            // Print the line normally
-            mvprintw(line_number, 0, str.c_str());
-        }
-
+        // Print the line with the correct substring
+        mvprintw(line_number, 0, utf8::substr(*str, scroll_offset.second, sub_len).c_str());
         line_number++;
     }
 
+
     // Manually draw the cursor
-    if (curLine != lines.end())
+    if (cur_line != lines.end())
     {
-        if (curCol < curLine->size())
+        attron(A_REVERSE);
+        int char_index = utf8::terminal_to_char_index(*cur_line, cur_col);
+        if (char_index < utf8::str_length(*cur_line))
         {
             // Draw the cursor on an existing character
-            attron(A_REVERSE);
-            mvprintw(std::distance(lines.begin(), curLine), curCol, "%c", (*curLine)[curCol]);
-            attroff(A_REVERSE);
+            std::string cursor_str = utf8::substr(*cur_line, char_index, 1);
+            mvprintw(std::distance(lines.begin(), cur_line) - scroll_offset.first, cur_col - scroll_offset.second, cursor_str.c_str());
         }
         else
         {
             // Draw the cursor at the end of the line
-            attron(A_REVERSE);
-            mvprintw(std::distance(lines.begin(), curLine), curCol, " ");
-            attroff(A_REVERSE);
+            mvprintw(std::distance(lines.begin(), cur_line) - scroll_offset.first, cur_col - scroll_offset.second, " ");
         }
+        attroff(A_REVERSE);
     }
-
-    // Update the physical screen
-    refresh();
 }
 
-void Document::drawCursor()
+void Document::set_selection_start()
 {
-    // Move the cursor to the current line and column
-    move(std::distance(lines.begin(), curLine), curCol);
+    selection_start = std::make_pair(std::distance(lines.begin(), cur_line), cur_col);
+    selecting = true;
 }
 
-void Document::moveCursor(int line, int col)
+void Document::scroll_to_cursor()
 {
-    if (selectionStart.first > -1 && selectionEnd.first > -1)
+    int cursor_line = std::distance(lines.begin(), cur_line);
+
+    // check if the cursor line is above the top of the view
+    if (cursor_line < scroll_offset.first)
     {
-        clearSelection();
-        return;
+        scroll_offset.first = cursor_line;
+    }
+    // check if the cursor line is below the bottom of the view
+    else if (cursor_line >= scroll_offset.first + getmaxy(stdscr))
+    {
+        scroll_offset.first = cursor_line - getmaxy(stdscr) + 1;
     }
 
-    // Validate and correct the line number
-    if (line < 0)
+    // check if the cursor column is to the left of the view
+    if (cur_col < scroll_offset.second)
     {
-        line = 0;
+        scroll_offset.second = cur_col;
     }
-    else if (line >= lines.size())
+    // check if the cursor column is to the right of the view
+    else if (cur_col >= scroll_offset.second + getmaxx(stdscr))
     {
-        line = lines.size() - 1;
+        scroll_offset.second = cur_col - getmaxx(stdscr) + 1;
     }
-
-    // Move the line cursor
-    curLine = std::next(lines.begin(), line);
-
-    // Validate and correct the column number
-    if (col < 0)
-    {
-        col = 0;
-    }
-    else if (col > curLine->size())
-    {
-        col = curLine->size();
-    }
-
-    // Move the column cursor
-    curCol = col;
-}
-
-void Document::setSelectionStart()
-{
-    selectionStart = std::make_pair(std::distance(lines.begin(), curLine), curCol);
-}
-
-void Document::setSelectionEnd()
-{
-    selectionEnd = std::make_pair(std::distance(lines.begin(), curLine), curCol);
 }
